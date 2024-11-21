@@ -1,18 +1,23 @@
 {
-    type: white, 
+    type: black, 
     rules: 
     {
         {
-            srcIP: 10.10.101.10,
+            srcIP: 192.168.0.1,
             dstIP: 123.123.123.123
             prot: udp
-            srcPort: 123
-            dstPort: 90
+            dstPort: 3000
         },
         {
-            srcIP: 17.17.17.17,
-            dstIP: 123.123.123.123
-            prot: tcp
+            prot: icmp
         },
+        {
+            prot: tcp
+            dstPort: 200
+        },
+        {
+            prot: tcp
+            dstPort: 201
+        }
     }
 }

@@ -2,10 +2,9 @@ import argparse
 import re 
 import os
 import socket
-from socket import socket, AF_PACKET, SOCK_RAW, ETH_P_ALL
+from socket import AF_PACKET, AF_INET, SOCK_RAW, ETH_P_ALL
 
-from scapy.all import *
-from scapy.layers.inet import *
+import dpkt
 
 BUF_SZIE = 1024
 
@@ -13,7 +12,7 @@ FILTER_COND = {'prot', 'srcIP', 'dstIP', 'srcPort', 'dstPort'}
 
 class RulesList:
     def __init__(self, type : str):
-        self.is_white = type == "white"
+        self.is_white = (type == "white")
         self.rules =  list()
     
     def update(self, rule : dict) -> None:
@@ -22,7 +21,8 @@ class RulesList:
     def match(self, pkt, rule) -> bool:
         match = True
         for key in FILTER_COND:
-            match &= (key in rule.keys) and (key in pkt.keys) and (rule[key] == pkt[key])
+            if (key in rule.keys()) and (key in pkt.keys()):
+                match &= (rule[key] == pkt[key])
         
         return match
                 
@@ -72,8 +72,8 @@ def define_rules(path : str) -> RulesList:
             if conditions[i] not in FILTER_COND:
                 raise Exception(f"Undefine condition:{conditions[i]}.")
             
-            if (conditions[i] == 'inPort' or conditions[i] == 'outPort'):
-                rule.update({conditions[i] : int(conditions[i + 1])})
+            if (conditions[i] == 'dstPort' or conditions[i] == 'srcPort'):
+                rule.update({conditions[i] : socket.htons(int(conditions[i + 1]))})
             else:         
                 rule.update({conditions[i] : conditions[i + 1]})
         
@@ -87,52 +87,54 @@ def create_socket(if_name : str) -> socket:
     return sock
 
 def print_packet(pkt) -> None:
-    for key in FILTER_COND:
-        if key in pkt.keys:
-            print(f"{key}: {pkt[key]}")
-    print()
+    for key, val in pkt.items():
+        print(f"{key}: {val}")
     
         
-def define_packet(scppkt) -> dict:
-    print(scppkt[IP].src)
-    pkt = dict()
-    if scppkt.haslayer(TCP):
+def define_packet(eth : dpkt.ethernet.Ethernet) -> dict:
+    ip = eth.data
+    
+    srcIP = str(socket.inet_ntop(AF_INET, ip.src))
+    dstIP = str(socket.inet_ntop(AF_INET, ip.dst))
+    
+    if isinstance(ip.data, dpkt.tcp.TCP):
         pkt = {'prot'    : 'tcp', 
-               'srcIP'   : str(scppkt[IP].src), 
-               'dstIP'   : str(scppkt[IP].dst),
-               'srcPort' : scppkt[TCP].sport,
-               'dstPort' : scppkt[TCP].dport}
+               'srcIP'   : srcIP, 
+               'dstIP'   : dstIP,
+               'srcPort' : socket.ntohs(ip.data.sport),
+               'dstPort' : socket.ntohs(ip.data.dport)}
     
-    if scppkt.haslayer(UDP):
+    if isinstance(ip.data, dpkt.udp.UDP):
         pkt = {'prot'    : 'udp', 
-               'srcIP'   : str(scppkt[IP].src), 
-               'dstIP'   : str(scppkt[IP].dst),
-               'srcPort' : scppkt[UDP].sport,
-               'dstPort' : scppkt[UDP].dport}
+               'srcIP'   : srcIP, 
+               'dstIP'   : dstIP,
+               'srcPort' : socket.ntohs(ip.data.sport),
+               'dstPort' : socket.ntohs(ip.data.dport)}
         
-    if scppkt.haslayer(ICMP):
+    if isinstance(ip.data, dpkt.icmp.ICMP):
         pkt = {'prot'    : 'icmp', 
-               'srcIP'   : str(scppkt[IP].src), 
-               'dstIP'   : str(scppkt[IP].dst)}
+               'srcIP'   : srcIP, 
+               'dstIP'   : dstIP}
         
     return pkt
 
 def myfilter(input : socket, output : socket, rules : RulesList) -> bool:
     data = input.recv(BUF_SZIE)
-    sca
-    if not data.haslayer(IP):
+    
+    eth = dpkt.ethernet.Ethernet(data)
+    if not isinstance(eth.data, dpkt.ip.IP):
         print("Skip package");
     else:
-        pkt = define_packet(data)
+        pkt = define_packet(eth)
         print_packet(pkt)
         
-        # if (rules.passed(pkt)):
-        #     print("Pass packet.")
-        # else:
-        #     print("Drop packet.")
-        #     return False
+        if rules.passed(pkt):
+            print("Pass packet.")
+        else:
+            print("Drop packet.")
+            return False
         
-    # output.send(data)
+    output.sendall(data)
     return True
         
 
@@ -148,9 +150,6 @@ def main(args):
     else:
         while(True):
             myfilter(output, input, rules_list)
-            
-    input.close()
-    output.close()
 
 if __name__ == "__main__":
     main(parse_args())
