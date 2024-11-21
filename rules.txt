@@ -3,17 +3,15 @@
     rules: 
     {
         {
-            inIP: 10.10.101.10,
-            outIP: 123.123.123.123
+            srcIP: 10.10.101.10,
+            dstIP: 123.123.123.123
             prot: udp
-            inPort: 123
-            outPort: 90
+            srcPort: 123
+            dstPort: 90
         },
         {
-            inIP: 17.17.17.17,
-            outIP: 123.123.123.123
-            inPort: 123
-            outPort: 21
+            srcIP: 17.17.17.17,
+            dstIP: 123.123.123.123
             prot: tcp
         },
     }
