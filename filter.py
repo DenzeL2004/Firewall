@@ -5,6 +5,7 @@ import socket
 from socket import socket, AF_PACKET, SOCK_RAW, ETH_P_ALL
 
 from scapy.all import *
+from scapy.layers.inet import *
 
 BUF_SZIE = 1024
 
@@ -81,58 +82,57 @@ def define_rules(path : str) -> RulesList:
     return rules_list
 
 def create_socket(if_name : str) -> socket:
-    sock = socket(AF_PACKET, SOCK_RAW, socket.htons(ETH_P_ALL))
+    sock = socket.socket(AF_PACKET, SOCK_RAW)
     sock.bind((if_name, ETH_P_ALL))
     return sock
 
-def print_eth_packet(pkt) -> None:
+def print_packet(pkt) -> None:
     for key in FILTER_COND:
         if key in pkt.keys:
             print(f"{key}: {pkt[key]}")
+    print()
     
         
-def define_eth_packet(eth ) -> dict:
-    # ip = eth.data
-    # if isinstance(ip.data, dpkt.tcp.TCP):
-    #     pkt = {'prot'    : 'tcp', 
-    #            'srcIP'   : str(ip.src), 
-    #            'dstIP'   : str(ip.dst),
-    #            'srcPort' : ip.data.sport,
-    #            'dstPort' : ip.data.sport}
+def define_packet(scppkt) -> dict:
+    print(scppkt[IP].src)
+    pkt = dict()
+    if scppkt.haslayer(TCP):
+        pkt = {'prot'    : 'tcp', 
+               'srcIP'   : str(scppkt[IP].src), 
+               'dstIP'   : str(scppkt[IP].dst),
+               'srcPort' : scppkt[TCP].sport,
+               'dstPort' : scppkt[TCP].dport}
     
-    # if isinstance(ip.data, dpkt.udp.UDP):
-    #     pkt = {'prot'    : 'udp', 
-    #            'srcIP'   : str(ip.src), 
-    #            'dstIP'   : str(ip.dst),
-    #            'srcPort' : ip.data.sport,
-    #            'dstPort' : ip.data.sport}
+    if scppkt.haslayer(UDP):
+        pkt = {'prot'    : 'udp', 
+               'srcIP'   : str(scppkt[IP].src), 
+               'dstIP'   : str(scppkt[IP].dst),
+               'srcPort' : scppkt[UDP].sport,
+               'dstPort' : scppkt[UDP].dport}
         
-    # if isinstance(ip.data, dpkt.icmp.ICMP):
-    #     pkt = {'prot'    : 'icmp', 
-    #            'srcIP'   : str(ip.src), 
-    #            'dstIP'   : str(ip.dst)}
+    if scppkt.haslayer(ICMP):
+        pkt = {'prot'    : 'icmp', 
+               'srcIP'   : str(scppkt[IP].src), 
+               'dstIP'   : str(scppkt[IP].dst)}
         
-    # return pkt
-    pass
+    return pkt
 
 def myfilter(input : socket, output : socket, rules : RulesList) -> bool:
     data = input.recv(BUF_SZIE)
-    
-    scppkt = scapy.IP(data)
-    scapy.ls(scppkt)
-    # if not isinstance(eth.data, dpkt.ip.IP):
-    #     print("Skip package");
-    # else:
-    #     pkt = define_eth_packet(eth)
-    #     print_eth_packet(pkt)
+    sca
+    if not data.haslayer(IP):
+        print("Skip package");
+    else:
+        pkt = define_packet(data)
+        print_packet(pkt)
         
-    #     if (rules.passed(pkt)):
-    #         print("Pass packet.")
-    #     else:
-    #         print("Drop packet.")
-    #         return False
+        # if (rules.passed(pkt)):
+        #     print("Pass packet.")
+        # else:
+        #     print("Drop packet.")
+        #     return False
         
-    output.send(data)
+    # output.send(data)
     return True
         
 
@@ -148,6 +148,9 @@ def main(args):
     else:
         while(True):
             myfilter(output, input, rules_list)
+            
+    input.close()
+    output.close()
 
 if __name__ == "__main__":
     main(parse_args())
