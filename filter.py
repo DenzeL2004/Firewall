@@ -142,7 +142,11 @@ def print_packet(pkt) -> None:
         
 def check_is_dns(data) -> bool:
     eth = dpkt.ethernet.Ethernet(data)
+    if not isinstance(eth.data, dpkt.ip.IP):
+        return False
+    
     ip = eth.data
+    
     udp = ip.data
     return isinstance(udp.data, dpkt.dns.DNS)
     
