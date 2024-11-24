@@ -4,7 +4,7 @@ import enum
 import socket
 from socket import AF_PACKET, AF_INET, SOCK_RAW, ETH_P_ALL
 from netfilterqueue import NetfilterQueue
-import dpkt
+from scapy.all import *
 
 BUF_SZIE = 1024
 PROTOCOLS = ['DNS']
@@ -33,7 +33,7 @@ class RulesList:
                 continue
             
             if flag in ['name', 'data']:
-                match &= rule[flag].match(pkt[flag]) is not None
+                match &=  pkt[flag].find(rule[flag]) != -1
             else:
                 match &= pkt[flag] == rule[flag]
             
@@ -62,7 +62,7 @@ class RulesList:
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("rules", type=str)
-    parser.add_argument('--queue-num', type=int, default=5)
+    parser.add_argument('--queue-num', type=int, default=1)
     return parser.parse_args()
 
 def parse_cond(cond : str):
@@ -120,11 +120,12 @@ def define_rules(path : str) -> RulesList:
                         raise Exception(f"Undefine flag({flag})")
 
                     if flag in ['name', 'data']:
-                        rule.update({flag : re.compile(arg)})
+                        rule.update({flag : arg})
                     
                     if flag in ['type', 'class', 'length']:
                         rule.update({flag : int(arg)})
-                    
+            
+            print(rule)
             rules_list.update(rule)              
             
     return rules_list
@@ -138,59 +139,51 @@ def create_socket(if_name : str) -> socket:
 def print_packet(pkt) -> None:
     for key, val in pkt.items():
         print(f"{key}: {val}")
+    print("\n")
     
         
-def check_is_dns(data) -> bool:
-    eth = dpkt.ethernet.Ethernet(data)
-    if not isinstance(eth.data, dpkt.ip.IP):
-        return False
+def check_is_dns(pkt) -> bool:
+    return pkt.haslayer(DNS)
     
-    ip = eth.data
+def get_dns_packet(pkt) -> dict:
+    my_pkt = dict({"prot" : "DNS"})
     
-    udp = ip.data
-    return isinstance(udp.data, dpkt.dns.DNS)
-    
-def get_dns_packet(data) -> dict:
-    ip = dpkt.ethernet.Ethernet(data).data
-    udp = ip.data
-    dns = dpkt.dns.DNS(udp.data)
-    
-    pkt = dict({"prot" : "DNS"})
-    if dns.qr == dpkt.dns.DNS_R:
-        rr_data, off = dns.unpack_rr(data, 0)
-        pkt.update({"QR"    : 1,
-                    "name"  : rr_data.name,
-                    "type"  : rr_data.type, 
-                    "class" : rr_data.cls, 
-                    "len"   : rr_data.rlaen, 
-                    "data"  : rr_data.rdata})
+    if pkt.haslayer(DNSRR):
+        rr = pkt.getlayer(DNSRR)
+        my_pkt.update({"QR"    : 1,
+                        "name"  : rr.get_field('rrname').i2repr(rr, rr.rrname),
+                        "type"  : rr.type, 
+                        "class" : rr.rclass, 
+                        "len"   : rr.rdlen, 
+                        "data"  : rr.get_field('rdata').i2repr(rr, rr.rdata)})
+    elif pkt.haslayer(DNSQR):
+        qr = pkt.getlayer(DNSQR)
+        my_pkt.update({ "QR"    : 0,
+                        "name"  : qr.get_field('qname').i2repr(qr, qr.qname),
+                        "type"  : qr.qtype,
+                        "class" : qr.qclass})
         
-    if dns.qr == dpkt.dns.DNS_Q:
-        q_data, off = dns.unpack_q(data, 0)
-        pkt.update({"QR"    : 0,
-                    "name"  : q_data.name,
-                    "type"  : q_data.type, 
-                    "class" : q_data.cls})
-        
-    return pkt
+    return my_pkt
 
 def packet_handler(pkt, rules : RulesList):
-    data = pkt.get_payload()
     
-    if not check_is_dns(data):
-        print("Skip package");
+    scp_pkt = IP(pkt.get_payload())
+    
+    if not check_is_dns(scp_pkt):
+        print("Skip package\n")
     else:
-        pkt = get_dns_packet(data)
-        print_packet(pkt)
+        my_pkt = get_dns_packet(scp_pkt)
+        print_packet(my_pkt)
         
-        act_type = rules.passed(pkt)
+        act_type = rules.passed(my_pkt)
         if act_type == Action.drop:
-            print("Drop")
-            return pkt.drop()
+            print("Drop\n")
+            pkt.drop()
+            return
         else:
-            print("Accept")        
+            print("Accept\n")        
 
-    return pkt.accept()
+    pkt.accept()
         
 
 def main(args):
